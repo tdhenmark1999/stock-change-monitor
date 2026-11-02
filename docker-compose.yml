@@ -1,0 +1,115 @@
+# Fixed volume names: a renamed folder or another project name must never start from an empty database.
+name: ${COMPOSE_PROJECT_NAME:-esm}
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://esm:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/esm
+  REDIS_URL: redis://redis:6379
+  API_TOKEN: ${API_TOKEN:?set API_TOKEN in .env}
+  SSRF_ALLOW_HOSTS: ${SSRF_ALLOW_HOSTS:-}
+  CHECK_ATTEMPTS: ${CHECK_ATTEMPTS:-3}
+  CHECK_TIMEOUT_MS: ${CHECK_TIMEOUT_MS:-20000}
+  HISTORY_RETENTION_DAYS: ${HISTORY_RETENTION_DAYS:-90}
+  SCHEDULER_TICK_MS: ${SCHEDULER_TICK_MS:-15000}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: esm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: esm
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U esm -d esm]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Only carries queued work. PostgreSQL holds the schedule, so losing this data is harmless.
+    command: [redis-server, --maxmemory-policy, noeviction]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: { context: ., dockerfile: docker/Dockerfile, target: api }
+    image: esm-api:latest
+    # "migrate deploy" only applies pending migrations. It never resets or drops data.
+    command: [sh, -c, "cd /repo && npx prisma migrate deploy"]
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    image: esm-api:latest
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+
+  worker:
+    image: esm-api:latest
+    restart: unless-stopped
+    command: [node, dist/worker.js]
+    environment: *app-env
+    # Long enough for a running check to finish after SIGTERM.
+    stop_grace_period: 40s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      # The scheduler writes this file on each successful tick.
+      test: [CMD, node, -e, "const a=Date.now()-Number(require('fs').readFileSync('/tmp/worker-heartbeat','utf8'));process.exit(a<120000?0:1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+
+  web:
+    build: { context: ., dockerfile: docker/Dockerfile, target: web }
+    image: esm-web:latest
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:4000
+      API_TOKEN: ${API_TOKEN:?set API_TOKEN in .env}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - ${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+
+  # Demo shop, started only with --profile demo. Add SSRF_ALLOW_HOSTS=fixture to reach it.
+  fixture:
+    profiles: [demo]
+    build: { context: ., dockerfile: docker/Dockerfile, target: fixture }
+    image: esm-fixture:latest
+    restart: unless-stopped
+    environment:
+      PORT: "4100"
+
+volumes:
+  pgdata:
+    name: ${PGDATA_VOLUME:-esm-pgdata}
