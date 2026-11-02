@@ -1,0 +1,24 @@
+# Hardened changedetection.io deployment. The failures these settings address are listed in README.md.
+name: changedetection
+
+services:
+  changedetection:
+    build: .
+    image: changedetection-fixed:0.55.8
+    # A fixed name makes Docker refuse a second copy of this service.
+    container_name: ${CHANGEDETECTION_CONTAINER:-changedetection}
+    hostname: changedetection
+    restart: unless-stopped
+    environment:
+      # Force writes to disk before reporting success, to reduce the risk of a power loss undoing a save.
+      - FORCE_FSYNC_DATA_IS_CRITICAL=True
+    volumes:
+      - datastore:/datastore
+    ports:
+      - ${CHANGEDETECTION_BIND:-127.0.0.1}:${CHANGEDETECTION_PORT:-5000}:5000
+
+volumes:
+  datastore:
+    # A fixed name stops a renamed folder or a different "-p" project from creating a new empty volume.
+    # Set this to the name of your EXISTING volume to keep your data, see README.md.
+    name: ${CHANGEDETECTION_VOLUME:-changedetection-data}

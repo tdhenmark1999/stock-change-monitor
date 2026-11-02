@@ -1,0 +1,147 @@
+diff --git a/changedetectionio/__init__.py b/changedetectionio/__init__.py
+index 9232a3ce..d6066277 100644
+--- a/changedetectionio/__init__.py
++++ b/changedetectionio/__init__.py
+@@ -379,6 +379,9 @@ def main():
+                 f"Or use the -C parameter to create the directory.")
+             sys.exit(2)
+ 
++    from changedetectionio.store.datastore_guard import enforce_datastore_safety
++    enforce_datastore_safety(app_config['datastore_path'])
++
+     try:
+         datastore = store.ChangeDetectionStore(datastore_path=app_config['datastore_path'], version_tag=__version__, include_default_watches=include_default_watches)
+     except JSONDecodeError as e:
+diff --git a/changedetectionio/api/Watch.py b/changedetectionio/api/Watch.py
+index 9f5d0c82..0d85e1d3 100644
+--- a/changedetectionio/api/Watch.py
++++ b/changedetectionio/api/Watch.py
+@@ -228,7 +228,10 @@ class Watch(Resource):
+ 
+         # Update watch with regular (non-processor-config) fields
+         watch.update(json_data)
+-        watch.commit()
++        try:
++            watch.commit(strict=True)
++        except Exception as e:
++            return f"Could not save changes to disk: {e}", 500
+ 
+         # Save processor config to JSON file
+         processors.save_processor_config(self.datastore, uuid, processor_config_data)
+diff --git a/changedetectionio/blueprint/ui/edit.py b/changedetectionio/blueprint/ui/edit.py
+index 86b71b94..0e55cada 100644
+--- a/changedetectionio/blueprint/ui/edit.py
++++ b/changedetectionio/blueprint/ui/edit.py
+@@ -235,7 +235,11 @@ def construct_blueprint(datastore: ChangeDetectionStore, update_q, queuedWatchMe
+             datastore.data['watching'][uuid] = watch_class(datastore_path=datastore.datastore_path, __datastore=datastore.data, default=datastore.data['watching'][uuid])
+ 
+             # Save the watch immediately
+-            datastore.data['watching'][uuid].commit()
++            try:
++                datastore.data['watching'][uuid].commit(strict=True)
++            except Exception as e:
++                flash(gettext("Your changes could NOT be saved to disk and will be lost on restart:") + f" {e}", 'error')
++                return redirect(url_for('ui.ui_edit.edit_page', uuid=uuid))
+ 
+             flash(gettext("Updated watch - unpaused!") if request.args.get('unpause_on_save') else gettext("Updated watch."))
+ 
+diff --git a/changedetectionio/model/__init__.py b/changedetectionio/model/__init__.py
+index 61d41ece..0b3bb19b 100644
+--- a/changedetectionio/model/__init__.py
++++ b/changedetectionio/model/__init__.py
+@@ -639,15 +639,16 @@ class watch_base(dict):
+         """
+         raise NotImplementedError("Subclass must implement _save_to_disk()")
+ 
+-    def commit(self):
++    def commit(self, strict=False):
+         """
+         Save this watch/tag immediately to disk using atomic write.
+ 
+         Common commit logic for Watch and Tag objects.
+         Subclasses override _get_commit_data() and _save_to_disk() for specifics.
+ 
+-        Fire-and-forget: Logs errors but does not raise exceptions.
++        Logs errors and, unless strict, does not raise exceptions.
+         Data remains in memory even if save fails, so next commit will retry.
++        User-initiated saves pass strict=True so a failed save is reported, not hidden.
+         """
+         from loguru import logger
+ 
+@@ -677,4 +678,6 @@ class watch_base(dict):
+             self._save_to_disk(data_dict, uuid)
+             logger.debug(f"Committed {entity_type} {uuid} to {uuid}/{filename}")
+         except Exception as e:
+-            logger.error(f"Failed to commit {uuid}: {e}")
+\ No newline at end of file
++            logger.error(f"Failed to commit {uuid}: {e}")
++            if strict:
++                raise
+diff --git a/changedetectionio/store/datastore_guard.py b/changedetectionio/store/datastore_guard.py
+new file mode 100644
+index 00000000..d577b693
+--- /dev/null
++++ b/changedetectionio/store/datastore_guard.py
+@@ -0,0 +1,62 @@
++"""
++Startup checks that stop the datastore from silently losing saved data.
++
++- A datastore that is not a mounted volume is deleted with the container.
++- A datastore that cannot be written keeps edits in memory only, until the next restart.
++- A second process on one datastore overwrites watch.json from its own stale memory.
++"""
++
++import fcntl
++import os
++import sys
++import tempfile
++
++from loguru import logger
++
++from .. import strtobool
++
++LOCK_FILENAME = '.instance.lock'
++
++# Held for the life of the process, the kernel releases the lock when it exits.
++_lock_file = None
++
++
++def _running_in_container():
++    return os.path.exists('/.dockerenv') or os.path.exists('/run/.containerenv')
++
++
++def _is_mount_point(path):
++    target = os.path.realpath(path)
++    with open('/proc/self/mountinfo') as f:
++        return any(line.split()[4] == target for line in f)
++
++
++def _refuse(message):
++    logger.critical(f"DATASTORE GUARD: {message}")
++    sys.exit(3)
++
++
++def enforce_datastore_safety(datastore_path):
++    global _lock_file
++
++    if _running_in_container() and not strtobool(os.getenv('ALLOW_EPHEMERAL_DATASTORE', 'False')):
++        if not _is_mount_point(datastore_path):
++            _refuse(f"'{datastore_path}' is not a mounted volume, all data would be deleted with this container. "
++                    f"Mount a volume at '{datastore_path}' or set ALLOW_EPHEMERAL_DATASTORE=true.")
++
++    try:
++        with tempfile.NamedTemporaryFile(dir=datastore_path, prefix='.write-probe-') as probe:
++            probe.write(b'ok')
++            probe.flush()
++            os.fsync(probe.fileno())
++    except OSError as e:
++        _refuse(f"'{datastore_path}' is not writable, saved changes would be lost on restart: {e}")
++
++    _lock_file = open(os.path.join(datastore_path, LOCK_FILENAME), 'w')
++    try:
++        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
++    except OSError:
++        _refuse(f"another instance is already using '{datastore_path}'. "
++                f"Two instances overwrite each other's saved changes, stop the other one first.")
++
++    logger.info(f"Datastore guard passed for '{datastore_path}'")
