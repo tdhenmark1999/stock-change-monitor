@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExtractType {
+  TEXT
+  ATTRIBUTE
+}
+
+enum FieldRole {
+  TEXT
+  PRICE
+  STOCK
+  QUANTITY
+}
+
+enum StockStatus {
+  IN_STOCK
+  OUT_OF_STOCK
+  UNKNOWN
+}
+
+enum FieldStatus {
+  OK
+  MISSING
+  INVALID_SELECTOR
+}
+
+enum RunStatus {
+  SUCCESS
+  PARTIAL
+  ERROR
+}
+
+model Monitor {
+  id                  String       @id @default(uuid())
+  name                String
+  url                 String
+  intervalMinutes     Int          @default(60)
+  enabled             Boolean      @default(true)
+  // Result columns: written by the worker. Everything above is configuration, written only by the API.
+  nextCheckAt         DateTime     @default(now())
+  lastCheckAt         DateTime?
+  lastSuccessAt       DateTime?
+  lastRunStatus       RunStatus?
+  lastStockStatus     StockStatus  @default(UNKNOWN)
+  lastError           String?
+  consecutiveFailures Int          @default(0)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  fields              MonitorField[]
+  runs                CheckRun[]
+
+  @@index([enabled, nextCheckAt])
+}
+
+model MonitorField {
+  id            String       @id @default(uuid())
+  monitorId     String
+  name          String
+  selector      String
+  extractType   ExtractType  @default(TEXT)
+  attribute     String?
+  role          FieldRole    @default(TEXT)
+  inStockTerms  String[]     @default([])
+  outOfStockTerms String[]   @default([])
+  position      Int          @default(0)
+  // Result columns: written by the worker.
+  lastValue     String?
+  lastNumeric   Decimal?     @db.Decimal(18, 4)
+  lastStatus    FieldStatus?
+  lastCheckedAt DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  monitor       Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  results       FieldResult[]
+
+  @@unique([monitorId, name])
+  @@index([monitorId, position])
+}
+
+model CheckRun {
+  id                  String      @id @default(uuid())
+  monitorId           String
+  startedAt           DateTime
+  durationMs          Int
+  status              RunStatus
+  changed             Boolean     @default(false)
+  stockStatus         StockStatus @default(UNKNOWN)
+  previousStockStatus StockStatus @default(UNKNOWN)
+  errorCode           String?
+  errorMessage        String?
+  monitor             Monitor     @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  results             FieldResult[]
+
+  @@index([monitorId, startedAt(sort: Desc)])
+  @@index([startedAt(sort: Desc)])
+  @@index([status, startedAt(sort: Desc)])
+  @@index([changed, startedAt(sort: Desc)])
+}
+
+model FieldResult {
+  id            String        @id @default(uuid())
+  checkRunId    String
+  // Null once the field is removed. fieldName keeps the history readable after that or a rename.
+  fieldId       String?
+  fieldName     String
+  role          FieldRole
+  status        FieldStatus
+  previousValue String?
+  currentValue  String?
+  changed       Boolean       @default(false)
+  run           CheckRun      @relation(fields: [checkRunId], references: [id], onDelete: Cascade)
+  field         MonitorField? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+
+  @@index([checkRunId])
+  @@index([fieldId])
+}
