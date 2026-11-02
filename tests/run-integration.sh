@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the integration tests against throwaway PostgreSQL and Redis containers held in memory.
-# It never reads .env and never touches the application's own database or volumes.
+# It never touches the application's own database or volumes.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -22,5 +22,7 @@ until docker exec "$PG" pg_isready -U esm -d esm_test >/dev/null 2>&1; do sleep 
 
 export DATABASE_URL="postgresql://esm:esm@127.0.0.1:$PG_PORT/esm_test"
 export REDIS_URL="redis://127.0.0.1:$REDIS_PORT"
+# Prisma loads .env by itself, without replacing variables that are already set.
+export API_TOKEN=""
 npx prisma migrate deploy >/dev/null
 npx vitest run --dir tests/integration "$@"

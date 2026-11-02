@@ -157,8 +157,8 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-Integration tests use throwaway containers and never read `.env`. They refuse to run against any database other than
-`esm_test`. Browser tests start their own stack with a separate volume.
+Integration tests use throwaway containers and never touch the application's database. They refuse to run against any
+database other than `esm_test`. Browser tests start their own stack with a separate volume.
 
 ## Local development
 

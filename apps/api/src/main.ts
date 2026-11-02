@@ -12,7 +12,8 @@ async function bootstrap() {
   }
   const app = await NestFactory.create(AppModule, { logger: new NestPinoLogger(log) });
   app.enableShutdownHooks();
-  await app.listen(config.port, '0.0.0.0');
+  // Without a token the API has no authentication, so it must not be reachable from the network.
+  await app.listen(config.port, config.apiToken ? '0.0.0.0' : '127.0.0.1');
   log.info({ port: config.port }, 'api started');
 }
 
