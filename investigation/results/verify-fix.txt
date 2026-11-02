@@ -1,0 +1,41 @@
+image: changedetection-fixed:0.55.8
+
+B. no volume: must refuse to start
+  PASS  exits with code 3
+  PASS  explains why
+
+C. volume at the wrong path: must refuse to start
+  PASS  exits with code 3
+
+A/D. correct volume: every form field survives check, restart and recreate
+  PASS  form saves without error
+  PASS  fields after save
+  PASS  fields after check run
+  PASS  fields after restart
+  PASS  fields after recreate
+
+G. second instance on the same datastore: must refuse to start
+  PASS  second instance exits with code 3
+  PASS  explains why
+  PASS  first instance still serving
+  PASS  lock released after restart, app is back
+
+F. datastore becomes unwritable while running: save must report failure
+  PASS  API returns 500 instead of 200
+  PASS  edit form shows the failure
+  PASS  healthcheck probe detects it
+  PASS  same save succeeds once writable again
+  PASS  and that save survives a restart
+
+M. moving an existing deployment onto the fix, following README.md
+  PASS  field saved on the original image
+  PASS  container reports healthy
+  PASS  existing watch and field kept
+
+diagnose.sh: must report each bad setup
+  PASS  no volume
+  PASS  unwritable datastore
+  PASS  failed saves in the log
+  PASS  two instances on one datastore
+
+Result: 24 passed, 0 failed

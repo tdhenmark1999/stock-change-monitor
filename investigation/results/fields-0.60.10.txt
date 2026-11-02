@@ -1,0 +1,30 @@
+image: ghcr.io/dgtlmoon/changedetection.io:0.60.10
+
+=== D. real edit form, correct volume: save, check run, restart, upgrade
+  form POST: http 200 flash=['Updated watch.'] errors=[]
+ after save:
+  fields ok: 13/13
+ after check run:
+  fields ok: 13/13
+ after restart:
+  fields ok: 13/13
+ after upgrade to 0.60.10:
+  fields ok: 13/13
+
+=== E. save concurrently with check runs (one instance, 20 rounds)
+  rounds where the saved field was lost: 0/20
+
+=== F. datastore unwritable (permissions / full-disk class of failure)
+  before       : api=['h1']
+  PUT new field: http 200
+  after save   : api=['h1', '.price']  disk=['h1']
+  log: 2026-11-02 06:17:26.159 | ERROR    | changedetectionio.model:commit:683 - Failed to commit e02e926f-e6da-4a51-af08-9de51d80fe4c: [Errno 13] Permission denied: '/datastore/e02e926f-e6da-4a51-af08-9de51
+  log: 2026-11-02 06:17:26.159 | ERROR    | changedetectionio.model:commit:683 - Failed to commit e02e926f-e6da-4a51-af08-9de51d80fe4c: [Errno 13] Permission denied: '/datastore/e02e926f-e6da-4a51-af08-9de51
+  after restart: api=['h1']
+
+=== G. two instances sharing one datastore
+  B loaded     : api=['h1']
+  PUT on A     : http 200
+  after save   : A=['h1', '.price'] disk=['h1', '.price']
+  after B check: A=['h1', '.price'] disk=['h1']
+  A restarted  : A=['h1']

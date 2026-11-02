@@ -1,0 +1,17 @@
+image: ghcr.io/dgtlmoon/changedetection.io:0.55.8
+declared volumes: null
+
+=== A. named volume mounted at /datastore (correct)
+  created       : repro-watch | ['h1', '.price'] | 6
+  after restart : repro-watch | ['h1', '.price'] | 6
+  after recreate: repro-watch | ['h1', '.price'] | 6
+
+=== B. no volume at all
+  created       : repro-watch | ['h1', '.price'] | 6
+  after restart : repro-watch | ['h1', '.price'] | 6
+  after recreate: MISSING
+
+=== C. volume mounted at the wrong path (/data)
+  created       : repro-watch | ['h1', '.price'] | 6
+  after restart : repro-watch | ['h1', '.price'] | 6
+  after recreate: MISSING
