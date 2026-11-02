@@ -1,0 +1,26 @@
+{
+  "name": "@esm/api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "start:worker": "node dist/worker.js"
+  },
+  "dependencies": {
+    "@esm/shared": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.19.0",
+    "bullmq": "^5.40.0",
+    "cheerio": "^1.0.0",
+    "ioredis": "^5.4.0",
+    "ipaddr.js": "^2.2.0",
+    "pino": "^9.6.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "undici": "^7.3.0",
+    "zod": "^4.6.6"
+  }
+}
