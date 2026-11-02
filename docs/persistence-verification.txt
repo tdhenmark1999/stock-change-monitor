@@ -1,0 +1,97 @@
+Persistence verification, started 2026-11-02 07:02:51 UTC
+
+STEP 1: Start the application with Docker Compose
+   Container esm-verify-fixture-1  Healthy
+   Container esm-verify-api-1  Healthy
+   Container esm-verify-web-1  Healthy
+  PASS  web answers through authentication (200)
+  PASS  web refuses requests without a password (401)
+
+STEP 2: Create a monitor
+  PASS  monitor has an id (yes)
+
+STEP 3: Add multiple custom monitoring fields
+  PASS  field added (201)
+  PASS  field added (201)
+  PASS  field added (201)
+  PASS  field added (201)
+
+STEP 4: Save the configuration
+  PASS  monitor update saved (200)
+  PASS  API returns every field (Price,Availability,Quantity,Schema availability,Title)
+
+STEP 5: Verify the saved records in PostgreSQL
+  db: Price|.price|TEXT||PRICE
+  db: Availability|.stock|TEXT||STOCK
+  db: Quantity|.qty|TEXT||QUANTITY
+  db: Schema availability|.availability|ATTRIBUTE|href|STOCK
+  db: Title|.title|TEXT||TEXT
+  PASS  monitor row (Laugenpumpe Bosch 00144978)
+  PASS  field rows (5)
+  PASS  custom stock term stored (auf Anfrage)
+
+STEP 6: Execute a monitoring check
+  PASS  manual check accepted (202)
+  PASS  check recorded (yes)
+  PASS  stock read as in stock (IN_STOCK)
+
+STEP 7: Verify monitoring history
+  PASS  change detected (True)
+  PASS  price previous value (CHF 49.90)
+  PASS  price current value (CHF 39.90)
+  PASS  history stored in PostgreSQL (1)
+  configuration fingerprint: d1413ed76926abc7594f6271ca4cd4e3a6423ea68d9951c8f150beae15a28343
+  history fingerprint (2 runs): 1d11ed9d031bb35190aa2c6232980527386b4f98eabc1d6841316330d3d1375c
+
+STEP 8: Restart the frontend and backend
+   Container esm-verify-api-1  Started
+
+STEP 9: Reload the dashboard
+  PASS  dashboard page renders (200)
+  PASS  dashboard page shows the data (yes)
+
+STEP 10: Confirm all custom fields still exist
+  PASS  fields through the API (Price,Availability,Quantity,Schema availability,Title)
+  PASS  configuration identical in PostgreSQL (d1413ed76926abc7594f6271ca4cd4e3a6423ea68d9951c8f150beae15a28343)
+
+STEP 11: Restart the background worker
+   Container esm-verify-worker-1  Started
+  PASS  worker stopped cleanly on SIGTERM (yes)
+
+STEP 12: Verify monitoring continues
+  PASS  scheduled check ran after the restart (yes)
+  PASS  it detected the stock change (OUT_OF_STOCK)
+  crash test: killing the worker with SIGKILL, then emptying Redis
+   Container esm-verify-worker-1  Killed
+  redis: OK
+   Container esm-verify-worker-1  Started
+  PASS  schedule recovered from PostgreSQL alone (yes)
+
+STEP 13: Recreate application containers, preserving database volumes
+   Container esm-verify-web-1  Started
+  PASS  api container is new (yes)
+  PASS  worker container is new (yes)
+  PASS  web container is new (yes)
+
+STEP 14: Verify saved monitors, custom fields and history remain intact
+  PASS  monitor still exists (Laugenpumpe Bosch 00144978)
+  PASS  custom fields intact (Price,Availability,Quantity,Schema availability,Title)
+  PASS  configuration identical in PostgreSQL (d1413ed76926abc7594f6271ca4cd4e3a6423ea68d9951c8f150beae15a28343)
+  PASS  earlier history identical (1d11ed9d031bb35190aa2c6232980527386b4f98eabc1d6841316330d3d1375c)
+
+  Extra: PostgreSQL itself recreated, then the whole stack stopped and started (no -v)
+   Container esm-verify-postgres-1  Started
+   Network esm-verify_default  Removed
+  PASS  volume kept after down (esm-verify-pgdata)
+   Container esm-verify-web-1  Healthy
+  PASS  custom fields intact (Price,Availability,Quantity,Schema availability,Title)
+  PASS  configuration identical in PostgreSQL (d1413ed76926abc7594f6271ca4cd4e3a6423ea68d9951c8f150beae15a28343)
+  PASS  earlier history identical (1d11ed9d031bb35190aa2c6232980527386b4f98eabc1d6841316330d3d1375c)
+  PASS  migrations did not re-apply or reset (1)
+  PASS  monitoring continues after full stop and start (yes)
+
+STEP 15: Record actual test results
+  total runs recorded: 5
+  40 passed, 0 failed
+Finished 2026-11-02 07:06:23 UTC
+RESULT: PASSED

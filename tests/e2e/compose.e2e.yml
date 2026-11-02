@@ -1,0 +1,5 @@
+# Publishes the demo shop so the browser tests can change what it serves.
+services:
+  fixture:
+    ports:
+      - 127.0.0.1:14100:4100
